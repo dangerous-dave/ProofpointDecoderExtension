@@ -65,31 +65,48 @@ $("#scanBtn").addEventListener("click", async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) { setStatus("No active tab"); return; }
 
-  const [{ result: found = [] } = {}] = await chrome.scripting.executeScript({
-    target: { tabId: tab.id },
-    func: () => {
-      const re = /https:\/\/urldefense(?:\.proofpoint)?\.com\/v[0-9]\/[^\s"'<>)]*/ig;
-      const set = new Set();
+  let timedOut = false;
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    setStatus("Scan timed out");
+  }, 15000);
 
-      for (const a of document.querySelectorAll("a[href]")) {
-        const href = a.getAttribute("href");
-        if (href && re.test(href)) set.add(href);
-        re.lastIndex = 0;
-      }
-      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-      let n, cap = 0;
-      while ((n = walker.nextNode()) && cap < 50000) {
-        const t = n.nodeValue;
-        if (t && t.length < 5000) {
-          let m; re.lastIndex = 0;
-          while ((m = re.exec(t)) !== null) set.add(m[0]);
+  let execRes;
+  try {
+    execRes = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => {
+        const re = /https:\/\/urldefense(?:\.proofpoint)?\.com\/v[0-9]\/[^\s"'<>)]*/ig;
+        const set = new Set();
+
+        for (const a of document.querySelectorAll("a[href]")) {
+          const href = a.getAttribute("href");
+          if (href && re.test(href)) set.add(href);
+          re.lastIndex = 0;
         }
-        cap += t ? t.length : 0;
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        let n, cap = 0;
+        while ((n = walker.nextNode()) && cap < 50000) {
+          const t = n.nodeValue;
+          if (t && t.length < 5000) {
+            let m; re.lastIndex = 0;
+            while ((m = re.exec(t)) !== null) set.add(m[0]);
+          }
+          cap += t ? t.length : 0;
+        }
+        return Array.from(set).slice(0, 200);
       }
-      return Array.from(set).slice(0, 200);
-    }
-  });
+    });
+  } catch (e) {
+    clearTimeout(timeoutId);
+    if (!timedOut) setStatus("Error: " + (e.message || String(e)));
+    return;
+  }
 
+  clearTimeout(timeoutId);
+  if (timedOut) return;
+
+  const [{ result: found = [] } = {}] = execRes;
   if (!found.length) { setStatus("No encoded URLs found"); return; }
   countEl.textContent = `${found.length} found`;
 
@@ -132,8 +149,8 @@ $("#scanBtn").addEventListener("click", async () => {
     resultsEl.appendChild(row);
 
     try {
-      const r = await decodeOne(enc);
-      if (r.ok) {
+      const r = await chrome.runtime.sendMessage({ type: "decode", payload: enc });
+      if (r?.ok) {
         decTxt.textContent = r.decoded;
         copyBtn.disabled = false;
         copyBtn.addEventListener("click", async () => {
@@ -141,7 +158,7 @@ $("#scanBtn").addEventListener("click", async () => {
           setStatus("Copied");
         });
       } else {
-        decTxt.textContent = "[error] " + r.error;
+        decTxt.textContent = "[error] " + (r?.error || "unknown");
       }
     } catch (e) {
       decTxt.textContent = "[error] " + String(e);
