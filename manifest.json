@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "Decode Proofpoint URL",
+  "version": "1.2.0",
+  "description": "Decode Proofpoint URL Defense links. Context menu + popup.",
+  "permissions": ["contextMenus", "scripting", "clipboardWrite", "activeTab", "storage"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_popup": "popup.html", "default_title": "Decode Proofpoint URL" },
+  "icons": { "16": "pp16.png" }
+}
